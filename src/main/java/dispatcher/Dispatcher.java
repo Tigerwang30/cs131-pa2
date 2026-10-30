@@ -2,9 +2,12 @@ package dispatcher;
 
 import dispatcher.policies.Policy;
 import driver.Driver;
+import logbook.EventType;
 import trip.Trip;
 
 import java.util.*;
+
+import driver.Message;
 
 /**
  * Similar to CPU scheduler. The dispatcher decides which trip the driver drives next, following its policy.
@@ -29,8 +32,11 @@ public class Dispatcher {
      */
     private final List<Trip> readyLine = new LinkedList<>();
 
-    // TODO: add the other fields you need, such as the waiting list, the list of finished trips, and what you need to
-    //  count stretch lengths
+    private final List<Trip> waitingList = new LinkedList<>();
+    private final List<Trip> finishedTrips = new LinkedList<>();
+    private int stretchCount = 0;
+    private int lastTick = 0;
+
 
     /**
      * Creates a dispatcher for the given driver and sets the driver's dispatcher to this new dispatcher
@@ -74,9 +80,78 @@ public class Dispatcher {
      * starting again. The current tick number is {@code driver.getClock().getTickNum()}.
      */
     public void dispatch() {
-        // TODO
-    }
+        int now = driver.getClock().getTickNum();
+        if (current != null) {
+            stretchCount += now - lastTick - 1;
+        }
+        boolean handOver = false;
+        Queue<Message> messageQueue = driver.getMessageQueue();
 
+        while (!messageQueue.isEmpty()) {
+            Message message = messageQueue.poll();
+            switch (message.type()) {
+                case STOP_SIGN:
+                case TIMER:
+                    if (current != null) {
+                        Trip leaving = current;
+                        releaseCurrent();
+                        readyLine.add(leaving);
+                        handOver = true;
+                    }
+                    break;
+                case RED_LIGHT:
+                    if (current != null) {
+                        Trip leaving = current;
+                        releaseCurrent();
+                        waitingList.add(leaving);
+                        handOver = true;
+                    }
+                    break;
+                case GREEN_LIGHT:
+                    Iterator<Trip> iterator = waitingList.iterator();
+                    while (iterator.hasNext()) {
+                        Trip trip = iterator.next();
+                        if (trip.getVehicle().id() == message.vehicleId()) {
+                            iterator.remove();
+                            readyLine.add(trip);
+                            break;
+                        }
+                    }
+                    break;
+                case DESTINATION:
+                    if (current != null) {
+                        Trip leaving = current;
+                        releaseCurrent();
+                        finishedTrips.add(leaving);
+                        driver.getLogbook().record(leaving.getVehicle(), EventType.TRIP_COMPLETE);
+                        handOver = true;
+                    }
+                    break;
+            }
+        }
+
+        if (current == null && !readyLine.isEmpty()) {
+            Trip next = policy.pickNext(Collections.unmodifiableList(readyLine));
+            readyLine.remove(next);
+            current = next;
+            stretchCount = 0;
+            if (policy.timeSlice() > 0) {
+                driver.startTimer(policy.timeSlice());
+            }
+            handOver = true;
+        }
+
+        if (handOver) {
+            driver.setTrip(current);
+        }
+
+        lastTick = now;
+    }
+    private void releaseCurrent() {
+        current.saveProgress(driver.getNextAddress(), stretchCount);
+        stretchCount = 0;
+        current = null;
+    }
     /**
      * Returns the trip the driver is currently driving.
      *
@@ -92,7 +167,8 @@ public class Dispatcher {
      * @param trip the Trip to add
      */
     public void addNewTrip(Trip trip) {
-        // TODO
+        readyLine.add(trip);
+        driver.getLogbook().record(trip.getVehicle(), EventType.TRIP_START);
     }
 
     /**
@@ -102,8 +178,13 @@ public class Dispatcher {
      * @return the total number of unfinished trips
      */
     public int getNumTrips() {
-        // TODO
-        return 0;
+        int count = 0;
+        if (current != null) {
+            count++;
+        }
+        count += readyLine.size();
+        count += waitingList.size();
+        return count;
     }
 
     /**
@@ -112,8 +193,7 @@ public class Dispatcher {
      * @return the number of trips in the ready line
      */
     public int getReadyLineSize() {
-        // TODO
-        return 0;
+        return readyLine.size();
     }
 
     /**
@@ -122,8 +202,7 @@ public class Dispatcher {
      * @return the number of trips in the waiting list
      */
     public int getWaitingListSize() {
-        // TODO
-        return 0;
+        return waitingList.size();
     }
 
     /**
@@ -132,7 +211,6 @@ public class Dispatcher {
      * @return the list of finished trips.
      */
     public List<Trip> getFinished() {
-        // TODO
-        return null;
+        return finishedTrips;
     }
 }

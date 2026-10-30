@@ -1,8 +1,8 @@
 package dispatcher.policies;
 
-import trip.Trip;
-
 import java.util.List;
+
+import trip.Trip;
 
 /**
  * The VIP First policy.
@@ -13,7 +13,12 @@ public class VIPFirst implements Policy {
 
     @Override
     public Trip pickNext(List<Trip> readyLine) {
-        // TODO
-        return null;
+        Trip nextTrip = readyLine.get(0);
+        for (Trip trip : readyLine) {
+            if (trip.getPriority() < nextTrip.getPriority()) {
+                nextTrip = trip;
+            }
+        }
+        return nextTrip;
     }
 }

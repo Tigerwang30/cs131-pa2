@@ -1,8 +1,8 @@
 package dispatcher.policies;
 
-import trip.Trip;
-
 import java.util.List;
+
+import trip.Trip;
 
 /**
  * The Shortest Next Stretch First policy.
@@ -25,8 +25,17 @@ public class ShortestNextStretchFirst implements Policy {
 
     @Override
     public Trip pickNext(List<Trip> readyLine) {
-        // TODO
-        return null;
+        Trip bestTrip = null;
+        double bestEstimation = Double.MAX_VALUE;
+
+        for (Trip trip : readyLine) {
+            double estimation = getEstimate(trip);
+            if (estimation < bestEstimation) {
+                bestEstimation = estimation;
+                bestTrip = trip;
+            }
+        }
+        return bestTrip;
     }
 
     /**
@@ -36,7 +45,14 @@ public class ShortestNextStretchFirst implements Policy {
      * @return the estimate, or 0 if the trip has not been driven yet
      */
     public double getEstimate(Trip trip) {
-        // TODO
-        return 0;
+        double guess = 0; 
+        for (int length : trip.getStretchLengths()) {
+            if (guess == 0) {
+                guess = length;
+            } else {
+                guess = alpha * guess + (1 - alpha) * length;
+            }
+        }
+        return guess; 
     }
 }

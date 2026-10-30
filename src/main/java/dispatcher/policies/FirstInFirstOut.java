@@ -1,8 +1,8 @@
 package dispatcher.policies;
 
-import trip.Trip;
-
 import java.util.List;
+
+import trip.Trip;
 
 /**
  * The First In, First Out policy.
@@ -12,7 +12,6 @@ public class FirstInFirstOut implements Policy {
 
     @Override
     public Trip pickNext(List<Trip> readyLine) {
-        // TODO
-        return null;
+        return readyLine.get(0);
     }
 }
