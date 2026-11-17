@@ -1,9 +1,14 @@
 package trip;
 
-import driver.Driver;
-import trip.stoppoints.StopPoint;
-
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+
+import driver.Driver;
+import driver.Message;
+import logbook.EventType;
+import trip.stoppoints.StopPoint;
 
 /**
  * A tunnel: a road that every driver in the city shares. Similar to a critical section guarding a shared resource.
@@ -23,6 +28,8 @@ public class Tunnel extends Road {
 
     // TODO: add the fields you need, such as the vehicles in the tunnel and the vehicles (with their drivers) waiting
     //  to enter
+    private final List<Vehicle> inTunnel = new ArrayList<>();
+    private final Map<Vehicle, Driver> waiting = new LinkedHashMap<>();
 
     /**
      * Creates a tunnel.
@@ -56,8 +63,26 @@ public class Tunnel extends Road {
      */
     @Override
     public boolean enter(Driver driver, Vehicle vehicle) {
-        // TODO
-        return false;
+        synchronized (this) {
+            boolean canEnter;
+            if (inTunnel.isEmpty()) {
+                canEnter = true;
+            } else {
+                Vehicle.Type type = inTunnel.get(0).type();
+                boolean sameType = (type == vehicle.type());
+                boolean hasRoom = inTunnel.size() < capacities.get(vehicle.type());
+                canEnter = sameType && hasRoom;
+            }
+            if (canEnter) {
+                inTunnel.add(vehicle);
+                driver.getLogbook().record(vehicle, this, EventType.TUNNEL_ENTER);
+                return true;
+            } 
+            driver.getLogbook().record(vehicle, this, EventType.TUNNEL_ENTER_FAILED);
+            waiting.put(vehicle, driver);
+            driver.sendMessage(new Message(vehicle.id(), Message.Type.RED_LIGHT));
+            return false;
+        }
     }
 
     /**
@@ -73,9 +98,38 @@ public class Tunnel extends Road {
      */
     @Override
     public void exit(Driver driver, Vehicle vehicle) {
-        // TODO
-    }
+        Map<Vehicle, Driver> toWake;
+        synchronized (this) {
+            if (!inTunnel.remove(vehicle)) return;
+            driver.getLogbook().record(vehicle, this, EventType.TUNNEL_EXIT);
+            toWake = new LinkedHashMap<>(waiting);
+            waiting.clear();
+        }
+        if (stopPoint != null) {
+            stopPoint.goThrough(driver, vehicle);
+        }
 
+        for (Map.Entry<Vehicle, Driver> entry : toWake.entrySet()) {
+            final Vehicle waitingVehicle = entry.getKey();
+            final Driver waitingDriver = entry.getValue();
+            driver.getClock().setAlarm(1, new GreenLightAlarm(waitingDriver, waitingVehicle));
+            
+        }
+    }
+    private static class GreenLightAlarm implements Runnable {
+        private final Driver driver;
+        private final Vehicle vehicle;
+
+        public GreenLightAlarm(Driver driver, Vehicle vehicle) {
+            this.driver = driver;
+            this.vehicle = vehicle;
+        }
+
+        @Override
+        public void run() {
+            driver.sendMessage(new Message(vehicle.id(), Message.Type.GREEN_LIGHT));
+        }
+    }
     public Map<Vehicle.Type, Integer> getCapacities() {
         return capacities;
     }

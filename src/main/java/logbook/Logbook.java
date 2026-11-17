@@ -1,10 +1,10 @@
 package logbook;
 
-import trip.Road;
-import trip.Vehicle;
-
 import java.util.LinkedList;
 import java.util.Queue;
+
+import trip.Road;
+import trip.Vehicle;
 
 
 /**
@@ -33,8 +33,9 @@ public class Logbook {
      * @param road    the event's road
      * @param type    the event's type
      */
-    public void record(Vehicle vehicle, Road road, EventType type) {
+    public synchronized void record(Vehicle vehicle, Road road, EventType type) {
         queue.add(new Event(vehicle, road, type, ++eventCounter));
+        notifyAll();
     }
 
     public void record(Vehicle vehicle, EventType type) {
@@ -51,7 +52,7 @@ public class Logbook {
      *
      * @return the head of the logbook, or null if the logbook is empty
      */
-    public Event poll() {
+    public synchronized Event poll() {
         return queue.poll();
     }
 
@@ -61,16 +62,18 @@ public class Logbook {
      * @return the head of the logbook
      * @throws InterruptedException if the current thread is interrupted while waiting
      */
-    public Event take() throws InterruptedException {
-        // TODO
-        return null;
+    public synchronized Event take() throws InterruptedException {
+        while (queue.isEmpty()) {
+            wait();
+        }
+        return queue.poll();
     }
 
     /**
      * Removes all events from the logbook and resets the ID counter.
      * TODO: make this method thread-safe.
      */
-    public void clear() {
+    public synchronized void clear() {
         queue.clear();
         eventCounter = 0;
     }
@@ -81,7 +84,7 @@ public class Logbook {
      *
      * @return the ID of the most recent event, or 0 if no events have been added
      */
-    public int getCurrentEventId() {
+    public synchronized int getCurrentEventId() {
         return eventCounter;
     }
 
@@ -91,7 +94,7 @@ public class Logbook {
      *
      * @return the number of events in the logbook
      */
-    public int size() {
+    public synchronized int size() {
         return queue.size();
     }
 }

@@ -4,6 +4,8 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.locks.Condition;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * The city clock, which counts ticks. Just like a CPU/hardware clock.
@@ -27,6 +29,14 @@ public class Clock {
     private final Map<Integer, List<Runnable>> alarms = new HashMap<>();
     private int tickNum;
 
+    private final ReentrantLock lock = new ReentrantLock();
+    private final Condition allWaiting = lock.newCondition();
+    private final Condition tickStarted = lock.newCondition();
+    private int numWaiters;
+    private int numWaiting;
+    private Thread clockThread;
+    private long releaseDuration;
+
     // TODO: add the fields you need, such as a lock, its conditions, the number of waiters, and the clock thread
 
     /**
@@ -34,7 +44,28 @@ public class Clock {
      * Does nothing if a clock thread is already running due to a previous call.
      */
     public void startClock() {
-        // TODO
+        lock.lock();
+        try {
+            if (clockThread == null) {
+                clockThread = new Thread(new ClockLoop());
+                clockThread.setDaemon(true);
+                clockThread.start();
+            }
+        } finally {
+            lock.unlock();
+        }
+    }
+    private class ClockLoop implements Runnable {
+        @Override
+        public void run() {
+            try {
+                while (!Thread.currentThread().isInterrupted()) {
+                    startNextTick();
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
     }
 
     /**
@@ -42,8 +73,24 @@ public class Clock {
      * Does nothing if no clock thread is running.
      */
     public void stopClock() {
-        // TODO
+        Thread threadToStop;
+        lock.lock();
+        try {
+           threadToStop = clockThread;
+           clockThread = null;
+        } finally {
+            lock.unlock();
+        }
+        if (threadToStop != null) {
+            threadToStop.interrupt();
+            try {
+                threadToStop.join();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
     }
+    
 
     /**
      * Starts the next tick after waiting until there is at least one waiter and every waiter is waiting in
@@ -53,7 +100,19 @@ public class Clock {
      * @throws InterruptedException if the current thread is interrupted while waiting
      */
     public void startNextTick() throws InterruptedException {
-        // TODO
+        lock.lockInterruptibly();
+        try {
+            while (numWaiters == 0 || numWaiting < numWaiters) {
+                allWaiting.await();
+            }
+            tickNum++;
+            runAlarms();
+            numWaiting = 0;
+            releaseDuration++;
+            tickStarted.signalAll();
+        } finally {
+            lock.unlock();
+        }
     }
 
     /**
@@ -63,7 +122,19 @@ public class Clock {
      * @throws InterruptedException if the current thread is interrupted while waiting
      */
     public void waitForTick() throws InterruptedException {
-        // TODO
+        lock.lockInterruptibly();;
+        try {
+            long myReleaseDuration = releaseDuration;
+            numWaiting++;
+            if (numWaiting >= numWaiters) {
+                allWaiting.signalAll();
+            }
+            while (releaseDuration == myReleaseDuration) {
+                tickStarted.await();
+            }
+        } finally {
+            lock.unlock();
+        }
     }
 
     /**
@@ -95,7 +166,12 @@ public class Clock {
      * {@code waitForTick()} before starting a tick.
      */
     public void signalNewWaiter() {
-        // TODO
+        lock.lock();
+        try {
+            numWaiters++;
+        } finally {
+            lock.unlock();
+        }
     }
 
     /**
@@ -103,7 +179,15 @@ public class Clock {
      * is already waiting, the next tick can now start. Does nothing if there are no waiters.
      */
     public void signalRemoveWaiter() {
-        // TODO
+        lock.lock();
+        try {
+            if (numWaiters > 0) {
+                numWaiters--;
+                allWaiting.signalAll();
+            }
+        } finally {
+            lock.unlock();
+        }
     }
 
     /**
@@ -127,10 +211,15 @@ public class Clock {
      * @param action the action to run
      */
     public void setAlarmAt(int tick, Runnable action) {
-        if (tick <= tickNum) {
-            throw new IllegalArgumentException("tick " + tick + " is not after the current tick " + tickNum);
+        lock.lock();
+        try {
+            if (tick <= tickNum) {
+                throw new IllegalArgumentException("tick " + tick + " is not after the current tick " + tickNum);
+            }
+            alarms.computeIfAbsent(tick, t -> new ArrayList<>()).add(action);
+        } finally {
+            lock.unlock();
         }
-        alarms.computeIfAbsent(tick, t -> new ArrayList<>()).add(action);
     }
 
     /**
@@ -142,9 +231,14 @@ public class Clock {
      */
     public void setAlarm(int numTicks, Runnable action) {
         if (numTicks < 1) {
-            throw new IllegalArgumentException("numTicks must be at least 1");
+                throw new IllegalArgumentException("numTicks must be at least 1");
         }
-        setAlarmAt(tickNum + numTicks, action);
+        lock.lock();
+        try {
+            setAlarmAt(tickNum + numTicks, action);
+        } finally {
+            lock.unlock();
+        }
     }
 
     /**
@@ -154,7 +248,12 @@ public class Clock {
      * @return true if an alarm is set for a later tick, otherwise false
      */
     public boolean hasAlarms() {
-        return !alarms.isEmpty();
+        lock.lock();
+        try {
+            return !alarms.isEmpty();
+        } finally {
+            lock.unlock();
+        }
     }
 
     /**
@@ -164,6 +263,11 @@ public class Clock {
      * @return the number of ticks that have been started; 0 before the first tick
      */
     public int getTickNum() {
-        return tickNum;
+        lock.lock();
+        try {
+            return tickNum;
+        } finally {
+            lock.unlock();
+        }
     }
 }
